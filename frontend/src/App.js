@@ -26,19 +26,36 @@ ChartJS.register(
 );
 
 export default function App() {
-  const [token, setToken] = useState(localStorage.getItem('token'));
-  const [role, setRole] = useState(localStorage.getItem('role'));
-  const [email, setEmail] = useState(localStorage.getItem('email'));
+  // ================= AUTH STATE =================
+  const [token, setToken] = useState(localStorage.getItem('token') || '');
+  const [role, setRole] = useState(localStorage.getItem('role') || '');
+  const [email, setEmail] = useState(localStorage.getItem('email') || '');
+  const [name, setName] = useState(localStorage.getItem('name') || '');
 
+  // ================= UI STATE =================
   const [isLogin, setIsLogin] = useState(true);
   const [activePage, setActivePage] = useState('dashboard');
+  const [message, setMessage] = useState('');
+  const [loading, setLoading] = useState(false);
 
+  // ================= API =================
+  const API = 'https://debs-delights-production.up.railway.app';
+
+  const authHeaders = {
+    headers: {
+      Authorization: `Bearer ${token}`
+    }
+  };
+
+  // ================= AUTH FORM =================
   const [form, setForm] = useState({
+    name: '',
     email: '',
     password: '',
     role: 'staff'
   });
 
+  // ================= PRODUCT FORM =================
   const [productForm, setProductForm] = useState({
     name: '',
     category: '',
@@ -49,22 +66,26 @@ export default function App() {
   const [editingProductId, setEditingProductId] = useState(null);
   const [productSearch, setProductSearch] = useState('');
 
+  // ================= SALES FORM =================
   const [saleForm, setSaleForm] = useState({
     productId: '',
     quantity: ''
   });
 
+  // ================= EXPENSE FORM =================
   const [expenseForm, setExpenseForm] = useState({
     title: '',
     amount: ''
   });
 
+  // ================= INVOICE FORM =================
   const [invoiceForm, setInvoiceForm] = useState({
     customerName: '',
     items: '',
     total: ''
   });
 
+  // ================= DATA =================
   const [products, setProducts] = useState([]);
   const [sales, setSales] = useState([]);
   const [expenses, setExpenses] = useState([]);
@@ -76,21 +97,15 @@ export default function App() {
     profit: 0
   });
 
-  const [message, setMessage] = useState('');
-  const [loading, setLoading] = useState(false);
-
-  const API = 'http://localhost:5001';
-
+  // ================= LOAD APP =================
   useEffect(() => {
-    setToken(localStorage.getItem('token'));
-    setRole(localStorage.getItem('role'));
-    setEmail(localStorage.getItem('email'));
-
-    if (localStorage.getItem('token')) {
+    if (token) {
       loadAllData();
     }
-  }, []);
+    // eslint-disable-next-line
+  }, [token]);
 
+  // ================= HANDLERS =================
   const handleChange = (e) => {
     setForm({ ...form, [e.target.name]: e.target.value });
   };
@@ -111,6 +126,7 @@ export default function App() {
     setInvoiceForm({ ...invoiceForm, [e.target.name]: e.target.value });
   };
 
+  // ================= AUTH =================
   const handleAuth = async () => {
     setLoading(true);
     setMessage('');
@@ -125,19 +141,33 @@ export default function App() {
         localStorage.setItem('token', res.data.token);
         localStorage.setItem('role', res.data.role);
         localStorage.setItem('email', res.data.email);
+        localStorage.setItem('name', res.data.name || '');
 
         setToken(res.data.token);
         setRole(res.data.role);
         setEmail(res.data.email);
+        setName(res.data.name || '');
 
-        loadAllData();
+        setMessage('Login successful!');
       } else {
-        const res = await axios.post(`${API}/auth/register`, form);
+        const res = await axios.post(`${API}/auth/register`, {
+          name: form.name,
+          email: form.email,
+          password: form.password,
+          role: form.role
+        });
+
         setMessage(res.data.message + ' — You can now sign in.');
         setIsLogin(true);
+        setForm({
+          name: '',
+          email: '',
+          password: '',
+          role: 'staff'
+        });
       }
     } catch (error) {
-      setMessage(error.response?.data?.message || 'Something went wrong');
+      setMessage(error.response?.data?.message || 'Something went wrong.');
     } finally {
       setLoading(false);
     }
@@ -145,9 +175,10 @@ export default function App() {
 
   const logout = () => {
     localStorage.clear();
-    setToken(null);
-    setRole(null);
-    setEmail(null);
+    setToken('');
+    setRole('');
+    setEmail('');
+    setName('');
     setProducts([]);
     setSales([]);
     setExpenses([]);
@@ -158,19 +189,26 @@ export default function App() {
       totalExpenses: 0,
       profit: 0
     });
-    setForm({ email: '', password: '', role: 'staff' });
     setMessage('');
+    setForm({
+      name: '',
+      email: '',
+      password: '',
+      role: 'staff'
+    });
   };
 
+  // ================= LOAD DATA =================
   const loadAllData = async () => {
     try {
-      const [productsRes, salesRes, expensesRes, summaryRes, invoicesRes] = await Promise.all([
-        axios.get(`${API}/products`),
-        axios.get(`${API}/sales`),
-        axios.get(`${API}/expenses`),
-        axios.get(`${API}/summary`),
-        axios.get(`${API}/invoices`)
-      ]);
+      const [productsRes, salesRes, expensesRes, summaryRes, invoicesRes] =
+        await Promise.all([
+          axios.get(`${API}/products`, authHeaders),
+          axios.get(`${API}/sales`, authHeaders),
+          axios.get(`${API}/expenses`, authHeaders),
+          axios.get(`${API}/summary`, authHeaders),
+          axios.get(`${API}/invoices`, authHeaders)
+        ]);
 
       setProducts(productsRes.data);
       setSales(salesRes.data);
@@ -178,10 +216,13 @@ export default function App() {
       setSummary(summaryRes.data);
       setInvoices(invoicesRes.data);
     } catch (error) {
-      console.error('Failed to load data');
+      console.error('Failed to load data:', error);
+      setMessage('Session expired. Please login again.');
+      logout();
     }
   };
 
+  // ================= PRODUCTS =================
   const addOrUpdateProduct = async () => {
     try {
       const payload = {
@@ -191,10 +232,16 @@ export default function App() {
         stock: Number(productForm.stock)
       };
 
+      if (!payload.name || !payload.category || !payload.price || payload.stock < 0) {
+        return alert('Please fill in all product fields correctly.');
+      }
+
       if (editingProductId) {
-        await axios.put(`${API}/products/${editingProductId}`, payload);
+        await axios.put(`${API}/products/${editingProductId}`, payload, authHeaders);
+        setMessage('Product updated successfully.');
       } else {
-        await axios.post(`${API}/products`, payload);
+        await axios.post(`${API}/products`, payload, authHeaders);
+        setMessage('Product added successfully.');
       }
 
       setProductForm({
@@ -207,7 +254,7 @@ export default function App() {
 
       loadAllData();
     } catch (error) {
-      alert('Failed to save product');
+      alert(error.response?.data?.message || 'Failed to save product.');
     }
   };
 
@@ -233,57 +280,82 @@ export default function App() {
   };
 
   const deleteProduct = async (id) => {
+    if (role !== 'admin') {
+      return alert('Only admins can delete products.');
+    }
+
+    const confirmed = window.confirm('Are you sure you want to delete this product?');
+    if (!confirmed) return;
+
     try {
-      await axios.delete(`${API}/products/${id}`);
+      await axios.delete(`${API}/products/${id}`, authHeaders);
+      setMessage('Product deleted successfully.');
       loadAllData();
     } catch (error) {
-      alert('Failed to delete product');
+      alert(error.response?.data?.message || 'Failed to delete product.');
     }
   };
 
+  // ================= SALES =================
   const addSale = async () => {
     try {
+      if (!saleForm.productId || !saleForm.quantity) {
+        return alert('Please select a product and enter quantity.');
+      }
+
       await axios.post(`${API}/sales`, {
         productId: saleForm.productId,
         quantity: Number(saleForm.quantity)
-      });
+      }, authHeaders);
 
       setSaleForm({
         productId: '',
         quantity: ''
       });
 
+      setMessage('Sale recorded successfully.');
       loadAllData();
     } catch (error) {
-      alert(error.response?.data?.message || 'Failed to record sale');
+      alert(error.response?.data?.message || 'Failed to record sale.');
     }
   };
 
+  // ================= EXPENSES =================
   const addExpense = async () => {
     try {
+      if (!expenseForm.title || !expenseForm.amount) {
+        return alert('Please fill in expense details.');
+      }
+
       await axios.post(`${API}/expenses`, {
         title: expenseForm.title,
         amount: Number(expenseForm.amount)
-      });
+      }, authHeaders);
 
       setExpenseForm({
         title: '',
         amount: ''
       });
 
+      setMessage('Expense added successfully.');
       loadAllData();
     } catch (error) {
-      alert('Failed to add expense');
+      alert(error.response?.data?.message || 'Failed to add expense.');
     }
   };
 
+  // ================= INVOICES =================
   const addInvoice = async () => {
     try {
+      if (!invoiceForm.customerName || !invoiceForm.items || !invoiceForm.total) {
+        return alert('Please complete the invoice form.');
+      }
+
       await axios.post(`${API}/invoices`, {
         customerName: invoiceForm.customerName,
         items: invoiceForm.items.split(',').map(item => item.trim()),
         total: Number(invoiceForm.total)
-      });
+      }, authHeaders);
 
       setInvoiceForm({
         customerName: '',
@@ -291,9 +363,10 @@ export default function App() {
         total: ''
       });
 
+      setMessage('Invoice created successfully.');
       loadAllData();
     } catch (error) {
-      alert('Failed to create invoice');
+      alert(error.response?.data?.message || 'Failed to create invoice.');
     }
   };
 
@@ -346,6 +419,7 @@ export default function App() {
     receiptWindow.print();
   };
 
+  // ================= FILTER =================
   const filteredProducts = useMemo(() => {
     return products.filter((product) =>
       product.name.toLowerCase().includes(productSearch.toLowerCase()) ||
@@ -353,6 +427,7 @@ export default function App() {
     );
   }, [products, productSearch]);
 
+  // ================= CHARTS =================
   const salesExpenseChart = {
     labels: ['Sales', 'Expenses', 'Profit'],
     datasets: [
@@ -376,6 +451,7 @@ export default function App() {
     ]
   };
 
+  // ================= LOGIN PAGE =================
   if (!token) {
     return (
       <div className="app">
@@ -386,11 +462,39 @@ export default function App() {
           </div>
 
           <div className="form-group">
-            <input type="email" name="email" placeholder="Email address" value={form.email} onChange={handleChange} />
-            <input type="password" name="password" placeholder="Password" value={form.password} onChange={handleChange} />
+            {!isLogin && (
+              <input
+                type="text"
+                name="name"
+                placeholder="Full name"
+                value={form.name}
+                onChange={handleChange}
+              />
+            )}
+
+            <input
+              type="email"
+              name="email"
+              placeholder="Email address"
+              value={form.email}
+              onChange={handleChange}
+            />
+
+            <input
+              type="password"
+              name="password"
+              placeholder="Password"
+              value={form.password}
+              onChange={handleChange}
+            />
 
             {!isLogin && (
-              <select name="role" value={form.role} onChange={handleChange} className="role-select">
+              <select
+                name="role"
+                value={form.role}
+                onChange={handleChange}
+                className="role-select"
+              >
                 <option value="staff">Staff</option>
                 <option value="admin">Admin</option>
               </select>
@@ -413,6 +517,7 @@ export default function App() {
     );
   }
 
+  // ================= DASHBOARD =================
   return (
     <div className="dashboard">
       <aside className="sidebar">
@@ -435,10 +540,12 @@ export default function App() {
       <main className="main-content">
         <div className="top-bar">
           <div>
-            <h1>Welcome back</h1>
+            <h1>Welcome back, {name || 'User'}</h1>
             <p>{email} • {role}</p>
           </div>
         </div>
+
+        {message && <p className="status-message">{message}</p>}
 
         {activePage === 'dashboard' && (
           <>
@@ -520,7 +627,9 @@ export default function App() {
 
                       <div className="action-row">
                         <button className="edit-btn" onClick={() => startEditProduct(product)}>Edit</button>
-                        <button className="delete-btn" onClick={() => deleteProduct(product._id)}>Delete</button>
+                        {role === 'admin' && (
+                          <button className="delete-btn" onClick={() => deleteProduct(product._id)}>Delete</button>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -560,6 +669,7 @@ export default function App() {
                       <p>Quantity: {sale.quantity}</p>
                       <p>Unit Price: UGX {sale.price}</p>
                       <p>Total: UGX {sale.total}</p>
+                      <p>Sold By: {sale.soldBy}</p>
                     </div>
                   ))}
                 </div>
@@ -589,6 +699,7 @@ export default function App() {
                     <div className="product-card premium-card" key={expense._id}>
                       <h3>{expense.title}</h3>
                       <p>Amount: UGX {expense.amount}</p>
+                      <p>Added By: {expense.addedBy}</p>
                     </div>
                   ))}
                 </div>
@@ -620,6 +731,7 @@ export default function App() {
                       <h3>{invoice.customerName}</h3>
                       <p>Items: {invoice.items.join(', ')}</p>
                       <p>Total: UGX {invoice.total}</p>
+                      <p>Created By: {invoice.createdBy}</p>
                       <button className="gold-btn" onClick={() => printInvoice(invoice)}>
                         Print Receipt
                       </button>
