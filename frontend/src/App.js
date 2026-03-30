@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import axios from 'axios';
 import './App.css';
+import logo from './assets/logo.png';
 
 import {
   Chart as ChartJS,
@@ -26,28 +27,19 @@ ChartJS.register(
 );
 
 export default function App() {
-  // ================= AUTH STATE =================
+  // ===================== API =====================
+  const API =
+    process.env.REACT_APP_API_URL || 'http://localhost:5001';
+
+  // ===================== AUTH =====================
   const [token, setToken] = useState(localStorage.getItem('token') || '');
   const [role, setRole] = useState(localStorage.getItem('role') || '');
   const [email, setEmail] = useState(localStorage.getItem('email') || '');
   const [name, setName] = useState(localStorage.getItem('name') || '');
 
-  // ================= UI STATE =================
   const [isLogin, setIsLogin] = useState(true);
   const [activePage, setActivePage] = useState('dashboard');
-  const [message, setMessage] = useState('');
-  const [loading, setLoading] = useState(false);
 
-  // ================= API =================
-  const API = 'https://debs-delights-production.up.railway.app';
-
-  const authHeaders = {
-    headers: {
-      Authorization: `Bearer ${token}`
-    }
-  };
-
-  // ================= AUTH FORM =================
   const [form, setForm] = useState({
     name: '',
     email: '',
@@ -55,7 +47,7 @@ export default function App() {
     role: 'staff'
   });
 
-  // ================= PRODUCT FORM =================
+  // ===================== FORMS =====================
   const [productForm, setProductForm] = useState({
     name: '',
     category: '',
@@ -63,49 +55,138 @@ export default function App() {
     stock: ''
   });
 
-  const [editingProductId, setEditingProductId] = useState(null);
-  const [productSearch, setProductSearch] = useState('');
-
-  // ================= SALES FORM =================
   const [saleForm, setSaleForm] = useState({
     productId: '',
     quantity: ''
   });
 
-  // ================= EXPENSE FORM =================
   const [expenseForm, setExpenseForm] = useState({
     title: '',
     amount: ''
   });
 
-  // ================= INVOICE FORM =================
   const [invoiceForm, setInvoiceForm] = useState({
     customerName: '',
     items: '',
     total: ''
   });
 
-  // ================= DATA =================
+  const [paymentForm, setPaymentForm] = useState({
+    phoneNumber: '',
+    amount: '',
+    provider: 'MTN'
+  });
+
+  // ===================== STATES =====================
+  const [editingProductId, setEditingProductId] = useState(null);
+  const [productSearch, setProductSearch] = useState('');
+
   const [products, setProducts] = useState([]);
   const [sales, setSales] = useState([]);
   const [expenses, setExpenses] = useState([]);
   const [invoices, setInvoices] = useState([]);
+  const [payments, setPayments] = useState([]);
+  const [users, setUsers] = useState([]);
+
   const [summary, setSummary] = useState({
     totalProducts: 0,
+    totalStockValue: 0,
     totalSales: 0,
     totalExpenses: 0,
     profit: 0
   });
 
-  // ================= LOAD APP =================
+  const [businessHealth, setBusinessHealth] = useState({
+    healthStatus: '',
+    totalProducts: 0,
+    totalSales: 0,
+    totalExpenses: 0,
+    profit: 0,
+    totalStock: 0,
+    averageSaleValue: 0,
+    lowStockItems: [],
+    recommendation: []
+  });
+
+  const [message, setMessage] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  // ===================== AUTH HEADERS =====================
+  const authHeaders = useMemo(() => {
+    return {
+      headers: {
+        Authorization: token
+      }
+    };
+  }, [token]);
+
+  // ===================== LOAD DATA =====================
+  const loadAllData = useCallback(async () => {
+    if (!token) return;
+
+    try {
+      const requests = [
+        axios.get(`${API}/products`, authHeaders),
+        axios.get(`${API}/sales`, authHeaders),
+        axios.get(`${API}/expenses`, authHeaders),
+        axios.get(`${API}/summary`, authHeaders),
+        axios.get(`${API}/invoices`, authHeaders),
+        axios.get(`${API}/ai/business-health`, authHeaders)
+      ];
+
+      if (role === 'admin') {
+        requests.push(axios.get(`${API}/payments`, authHeaders));
+        requests.push(axios.get(`${API}/users`, authHeaders));
+      }
+
+      const responses = await Promise.all(requests);
+
+      setProducts(responses[0]?.data || []);
+      setSales(responses[1]?.data || []);
+      setExpenses(responses[2]?.data || []);
+      setSummary(
+        responses[3]?.data || {
+          totalProducts: 0,
+          totalStockValue: 0,
+          totalSales: 0,
+          totalExpenses: 0,
+          profit: 0
+        }
+      );
+      setInvoices(responses[4]?.data || []);
+      setBusinessHealth(
+        responses[5]?.data || {
+          healthStatus: '',
+          totalProducts: 0,
+          totalSales: 0,
+          totalExpenses: 0,
+          profit: 0,
+          totalStock: 0,
+          averageSaleValue: 0,
+          lowStockItems: [],
+          recommendation: []
+        }
+      );
+
+      if (role === 'admin') {
+        setPayments(responses[6]?.data || []);
+        setUsers(responses[7]?.data || []);
+      } else {
+        setPayments([]);
+        setUsers([]);
+      }
+    } catch (error) {
+      console.error('Failed to load app data:', error);
+    }
+  }, [API, authHeaders, role, token]);
+
   useEffect(() => {
     if (token) {
       loadAllData();
     }
-    // eslint-disable-next-line
-  }, [token]);
+  }, [token, loadAllData]);
 
-  // ================= HANDLERS =================
+  // ===================== INPUT HANDLERS =====================
   const handleChange = (e) => {
     setForm({ ...form, [e.target.name]: e.target.value });
   };
@@ -126,7 +207,11 @@ export default function App() {
     setInvoiceForm({ ...invoiceForm, [e.target.name]: e.target.value });
   };
 
-  // ================= AUTH =================
+  const handlePaymentChange = (e) => {
+    setPaymentForm({ ...paymentForm, [e.target.name]: e.target.value });
+  };
+
+  // ===================== AUTH =====================
   const handleAuth = async () => {
     setLoading(true);
     setMessage('');
@@ -141,12 +226,12 @@ export default function App() {
         localStorage.setItem('token', res.data.token);
         localStorage.setItem('role', res.data.role);
         localStorage.setItem('email', res.data.email);
-        localStorage.setItem('name', res.data.name || '');
+        localStorage.setItem('name', res.data.name);
 
         setToken(res.data.token);
         setRole(res.data.role);
         setEmail(res.data.email);
-        setName(res.data.name || '');
+        setName(res.data.name);
 
         setMessage('Login successful!');
       } else {
@@ -183,46 +268,31 @@ export default function App() {
     setSales([]);
     setExpenses([]);
     setInvoices([]);
+    setPayments([]);
+    setUsers([]);
     setSummary({
       totalProducts: 0,
+      totalStockValue: 0,
       totalSales: 0,
       totalExpenses: 0,
       profit: 0
     });
-    setMessage('');
-    setForm({
-      name: '',
-      email: '',
-      password: '',
-      role: 'staff'
+    setBusinessHealth({
+      healthStatus: '',
+      totalProducts: 0,
+      totalSales: 0,
+      totalExpenses: 0,
+      profit: 0,
+      totalStock: 0,
+      averageSaleValue: 0,
+      lowStockItems: [],
+      recommendation: []
     });
+    setMessage('');
+    setActivePage('dashboard');
   };
 
-  // ================= LOAD DATA =================
-  const loadAllData = async () => {
-    try {
-      const [productsRes, salesRes, expensesRes, summaryRes, invoicesRes] =
-        await Promise.all([
-          axios.get(`${API}/products`, authHeaders),
-          axios.get(`${API}/sales`, authHeaders),
-          axios.get(`${API}/expenses`, authHeaders),
-          axios.get(`${API}/summary`, authHeaders),
-          axios.get(`${API}/invoices`, authHeaders)
-        ]);
-
-      setProducts(productsRes.data);
-      setSales(salesRes.data);
-      setExpenses(expensesRes.data);
-      setSummary(summaryRes.data);
-      setInvoices(invoicesRes.data);
-    } catch (error) {
-      console.error('Failed to load data:', error);
-      setMessage('Session expired. Please login again.');
-      logout();
-    }
-  };
-
-  // ================= PRODUCTS =================
+  // ===================== PRODUCTS =====================
   const addOrUpdateProduct = async () => {
     try {
       const payload = {
@@ -232,16 +302,14 @@ export default function App() {
         stock: Number(productForm.stock)
       };
 
-      if (!payload.name || !payload.category || !payload.price || payload.stock < 0) {
-        return alert('Please fill in all product fields correctly.');
+      if (!payload.name || !payload.category || !payload.price || !payload.stock) {
+        return alert('Please fill in all product fields.');
       }
 
       if (editingProductId) {
         await axios.put(`${API}/products/${editingProductId}`, payload, authHeaders);
-        setMessage('Product updated successfully.');
       } else {
         await axios.post(`${API}/products`, payload, authHeaders);
-        setMessage('Product added successfully.');
       }
 
       setProductForm({
@@ -250,8 +318,8 @@ export default function App() {
         price: '',
         stock: ''
       });
-      setEditingProductId(null);
 
+      setEditingProductId(null);
       loadAllData();
     } catch (error) {
       alert(error.response?.data?.message || 'Failed to save product.');
@@ -280,82 +348,84 @@ export default function App() {
   };
 
   const deleteProduct = async (id) => {
-    if (role !== 'admin') {
-      return alert('Only admins can delete products.');
-    }
-
-    const confirmed = window.confirm('Are you sure you want to delete this product?');
-    if (!confirmed) return;
-
     try {
       await axios.delete(`${API}/products/${id}`, authHeaders);
-      setMessage('Product deleted successfully.');
       loadAllData();
     } catch (error) {
       alert(error.response?.data?.message || 'Failed to delete product.');
     }
   };
 
-  // ================= SALES =================
+  // ===================== SALES =====================
   const addSale = async () => {
     try {
       if (!saleForm.productId || !saleForm.quantity) {
         return alert('Please select a product and enter quantity.');
       }
 
-      await axios.post(`${API}/sales`, {
-        productId: saleForm.productId,
-        quantity: Number(saleForm.quantity)
-      }, authHeaders);
+      await axios.post(
+        `${API}/sales`,
+        {
+          productId: saleForm.productId,
+          quantity: Number(saleForm.quantity)
+        },
+        authHeaders
+      );
 
       setSaleForm({
         productId: '',
         quantity: ''
       });
 
-      setMessage('Sale recorded successfully.');
       loadAllData();
     } catch (error) {
       alert(error.response?.data?.message || 'Failed to record sale.');
     }
   };
 
-  // ================= EXPENSES =================
+  // ===================== EXPENSES =====================
   const addExpense = async () => {
     try {
       if (!expenseForm.title || !expenseForm.amount) {
-        return alert('Please fill in expense details.');
+        return alert('Please fill in all expense fields.');
       }
 
-      await axios.post(`${API}/expenses`, {
-        title: expenseForm.title,
-        amount: Number(expenseForm.amount)
-      }, authHeaders);
+      await axios.post(
+        `${API}/expenses`,
+        {
+          title: expenseForm.title,
+          amount: Number(expenseForm.amount)
+        },
+        authHeaders
+      );
 
       setExpenseForm({
         title: '',
         amount: ''
       });
 
-      setMessage('Expense added successfully.');
       loadAllData();
     } catch (error) {
       alert(error.response?.data?.message || 'Failed to add expense.');
     }
   };
 
-  // ================= INVOICES =================
+  // ===================== INVOICES =====================
   const addInvoice = async () => {
     try {
       if (!invoiceForm.customerName || !invoiceForm.items || !invoiceForm.total) {
-        return alert('Please complete the invoice form.');
+        return alert('Please fill in all invoice fields.');
       }
 
-      await axios.post(`${API}/invoices`, {
-        customerName: invoiceForm.customerName,
-        items: invoiceForm.items.split(',').map(item => item.trim()),
-        total: Number(invoiceForm.total)
-      }, authHeaders);
+      await axios.post(
+        `${API}/invoices`,
+        {
+          customerName: invoiceForm.customerName,
+          items: invoiceForm.items.split(',').map((item) => item.trim()),
+          total: Number(invoiceForm.total)
+        },
+        authHeaders
+      );
 
       setInvoiceForm({
         customerName: '',
@@ -363,7 +433,6 @@ export default function App() {
         total: ''
       });
 
-      setMessage('Invoice created successfully.');
       loadAllData();
     } catch (error) {
       alert(error.response?.data?.message || 'Failed to create invoice.');
@@ -408,7 +477,7 @@ export default function App() {
             <p><strong>Date:</strong> ${new Date(invoice.createdAt).toLocaleString()}</p>
             <h3>Items</h3>
             <ul>
-              ${invoice.items.map(item => `<li>${item}</li>`).join('')}
+              ${invoice.items.map((item) => `<li>${item}</li>`).join('')}
             </ul>
             <p class="total">Total: UGX ${invoice.total}</p>
           </div>
@@ -419,7 +488,62 @@ export default function App() {
     receiptWindow.print();
   };
 
-  // ================= FILTER =================
+  const downloadInvoice = (invoice) => {
+    const content = `
+Deb's Delights
+Luxury in Every Taste
+----------------------------------
+Customer: ${invoice.customerName}
+Date: ${new Date(invoice.createdAt).toLocaleString()}
+----------------------------------
+Items:
+${invoice.items.map((item) => `- ${item}`).join('\n')}
+----------------------------------
+Total: UGX ${invoice.total}
+`;
+
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = window.URL.createObjectURL(blob);
+
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `invoice-${invoice.customerName}.txt`;
+    a.click();
+    window.URL.revokeObjectURL(url);
+  };
+
+  // ===================== PAYMENTS =====================
+  const makePayment = async () => {
+    try {
+      if (!paymentForm.phoneNumber || !paymentForm.amount) {
+        return alert('Please enter phone number and amount.');
+      }
+
+      const res = await axios.post(
+        `${API}/payments`,
+        {
+          phoneNumber: paymentForm.phoneNumber,
+          amount: Number(paymentForm.amount),
+          provider: paymentForm.provider
+        },
+        authHeaders
+      );
+
+      alert(`Payment successful! Transaction ID: ${res.data.payment.transactionId}`);
+
+      setPaymentForm({
+        phoneNumber: '',
+        amount: '',
+        provider: 'MTN'
+      });
+
+      loadAllData();
+    } catch (error) {
+      alert(error.response?.data?.message || 'Payment failed.');
+    }
+  };
+
+  // ===================== FILTERED PRODUCTS =====================
   const filteredProducts = useMemo(() => {
     return products.filter((product) =>
       product.name.toLowerCase().includes(productSearch.toLowerCase()) ||
@@ -427,7 +551,7 @@ export default function App() {
     );
   }, [products, productSearch]);
 
-  // ================= CHARTS =================
+  // ===================== CHARTS =====================
   const salesExpenseChart = {
     labels: ['Sales', 'Expenses', 'Profit'],
     datasets: [
@@ -441,21 +565,23 @@ export default function App() {
   };
 
   const productStockChart = {
-    labels: products.map(product => product.name),
+    labels: products.map((product) => product.name),
     datasets: [
       {
         label: 'Stock Available',
-        data: products.map(product => product.stock),
+        data: products.map((product) => product.stock),
         backgroundColor: ['#d4af37', '#b8860b', '#f4c430', '#ffd700', '#daa520', '#c9a227']
       }
     ]
   };
 
-  // ================= LOGIN PAGE =================
+  // ===================== LOGIN SCREEN =====================
   if (!token) {
     return (
       <div className="app">
         <div className="login-card">
+          <img src={logo} alt="Deb's Delights Logo" className="brand-logo" />
+
           <div className="brand">
             <h1>Deb’s Delights</h1>
             <p>Luxury in Every Taste</p>
@@ -466,7 +592,7 @@ export default function App() {
               <input
                 type="text"
                 name="name"
-                placeholder="Full name"
+                placeholder="Full Name"
                 value={form.name}
                 onChange={handleChange}
               />
@@ -517,13 +643,18 @@ export default function App() {
     );
   }
 
-  // ================= DASHBOARD =================
+  // ===================== MAIN APP =====================
   return (
     <div className="dashboard">
       <aside className="sidebar">
         <div>
-          <h2 className="logo">Deb’s Delights</h2>
-          <p className="tagline">Luxury in Every Taste</p>
+          <div className="sidebar-brand">
+            <img src={logo} alt="Deb's Delights Logo" className="sidebar-logo" />
+            <div>
+              <h2 className="logo">Deb’s Delights</h2>
+              <p className="tagline">Luxury in Every Taste</p>
+            </div>
+          </div>
 
           <nav className="nav-links">
             <button className={`nav-btn ${activePage === 'dashboard' ? 'active' : ''}`} onClick={() => setActivePage('dashboard')}>Dashboard</button>
@@ -531,6 +662,11 @@ export default function App() {
             <button className={`nav-btn ${activePage === 'sales' ? 'active' : ''}`} onClick={() => setActivePage('sales')}>Sales</button>
             <button className={`nav-btn ${activePage === 'expenses' ? 'active' : ''}`} onClick={() => setActivePage('expenses')}>Expenses</button>
             <button className={`nav-btn ${activePage === 'invoices' ? 'active' : ''}`} onClick={() => setActivePage('invoices')}>Invoices</button>
+            <button className={`nav-btn ${activePage === 'payments' ? 'active' : ''}`} onClick={() => setActivePage('payments')}>Payments</button>
+            <button className={`nav-btn ${activePage === 'ai' ? 'active' : ''}`} onClick={() => setActivePage('ai')}>AI Analyst</button>
+            {role === 'admin' && (
+              <button className={`nav-btn ${activePage === 'admin' ? 'active' : ''}`} onClick={() => setActivePage('admin')}>Admin Panel</button>
+            )}
           </nav>
         </div>
 
@@ -540,19 +676,17 @@ export default function App() {
       <main className="main-content">
         <div className="top-bar">
           <div>
-            <h1>Welcome back, {name || 'User'}</h1>
+            <h1>Welcome back, {name}</h1>
             <p>{email} • {role}</p>
           </div>
         </div>
-
-        {message && <p className="status-message">{message}</p>}
 
         {activePage === 'dashboard' && (
           <>
             <section className="cards-grid">
               <div className="summary-card"><h3>Total Products</h3><p>{summary.totalProducts}</p></div>
+              <div className="summary-card"><h3>Stock Value</h3><p>UGX {summary.totalStockValue}</p></div>
               <div className="summary-card"><h3>Total Sales</h3><p>UGX {summary.totalSales}</p></div>
-              <div className="summary-card"><h3>Total Expenses</h3><p>UGX {summary.totalExpenses}</p></div>
               <div className="summary-card"><h3>Profit</h3><p>UGX {summary.profit}</p></div>
             </section>
 
@@ -571,8 +705,8 @@ export default function App() {
             <section className="welcome-panel premium-glow">
               <h2>Executive Business Insights</h2>
               <p>
-                Deb’s Delights is now operating with a premium control dashboard
-                for products, sales, expenses, invoices, and business performance.
+                Deb’s Delights now operates on a luxury-grade business control system
+                for products, sales, invoices, expenses, mobile money, and AI analysis.
               </p>
             </section>
           </>
@@ -669,7 +803,6 @@ export default function App() {
                       <p>Quantity: {sale.quantity}</p>
                       <p>Unit Price: UGX {sale.price}</p>
                       <p>Total: UGX {sale.total}</p>
-                      <p>Sold By: {sale.soldBy}</p>
                     </div>
                   ))}
                 </div>
@@ -699,7 +832,6 @@ export default function App() {
                     <div className="product-card premium-card" key={expense._id}>
                       <h3>{expense.title}</h3>
                       <p>Amount: UGX {expense.amount}</p>
-                      <p>Added By: {expense.addedBy}</p>
                     </div>
                   ))}
                 </div>
@@ -731,10 +863,125 @@ export default function App() {
                       <h3>{invoice.customerName}</h3>
                       <p>Items: {invoice.items.join(', ')}</p>
                       <p>Total: UGX {invoice.total}</p>
-                      <p>Created By: {invoice.createdBy}</p>
-                      <button className="gold-btn" onClick={() => printInvoice(invoice)}>
-                        Print Receipt
-                      </button>
+
+                      <div className="action-row">
+                        <button className="gold-btn" onClick={() => printInvoice(invoice)}>
+                          Print
+                        </button>
+                        <button className="edit-btn" onClick={() => downloadInvoice(invoice)}>
+                          Download
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          </div>
+        )}
+
+        {activePage === 'payments' && (
+          <div className="products-page">
+            <section className="form-panel">
+              <h2>Mobile Money Payment</h2>
+              <div className="form-grid">
+                <input name="phoneNumber" placeholder="Phone Number" value={paymentForm.phoneNumber} onChange={handlePaymentChange} />
+                <input name="amount" placeholder="Amount" value={paymentForm.amount} onChange={handlePaymentChange} />
+                <select name="provider" value={paymentForm.provider} onChange={handlePaymentChange} className="role-select">
+                  <option value="MTN">MTN MoMo</option>
+                  <option value="Airtel">Airtel Money</option>
+                </select>
+              </div>
+              <button className="gold-btn" onClick={makePayment}>Process Payment</button>
+            </section>
+
+            {role === 'admin' && (
+              <section className="products-list-panel">
+                <h2>Payment Records</h2>
+                {payments.length === 0 ? (
+                  <p className="empty-text">No payments yet.</p>
+                ) : (
+                  <div className="products-grid">
+                    {payments.map((payment) => (
+                      <div className="product-card premium-card" key={payment._id}>
+                        <h3>{payment.provider}</h3>
+                        <p>Phone: {payment.phoneNumber}</p>
+                        <p>Amount: UGX {payment.amount}</p>
+                        <p>Status: {payment.status}</p>
+                        <p>Transaction: {payment.transactionId}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+            )}
+          </div>
+        )}
+
+        {activePage === 'ai' && (
+          <div className="products-page">
+            <section className="welcome-panel premium-glow">
+              <h2>AI Business Analyst</h2>
+              <p>
+                Your AI business assistant audits your business health, profitability,
+                stock, and gives intelligent recommendations to help Deb’s Delights grow.
+              </p>
+            </section>
+
+            <section className="cards-grid">
+              <div className="summary-card"><h3>Business Health</h3><p>{businessHealth.healthStatus}</p></div>
+              <div className="summary-card"><h3>Total Sales</h3><p>UGX {businessHealth.totalSales}</p></div>
+              <div className="summary-card"><h3>Total Expenses</h3><p>UGX {businessHealth.totalExpenses}</p></div>
+              <div className="summary-card"><h3>Profit</h3><p>UGX {businessHealth.profit}</p></div>
+            </section>
+
+            <section className="products-list-panel">
+              <h2>AI Recommendations</h2>
+              <div className="recommendations-list">
+                {businessHealth.recommendation?.length > 0 ? (
+                  businessHealth.recommendation.map((tip, index) => (
+                    <div className="recommendation-card" key={index}>
+                      {tip}
+                    </div>
+                  ))
+                ) : (
+                  <p className="empty-text">No AI recommendations yet.</p>
+                )}
+              </div>
+            </section>
+
+            <section className="products-list-panel">
+              <h2>Low Stock Alerts</h2>
+              {businessHealth.lowStockItems?.length === 0 ? (
+                <p className="empty-text">No low stock warnings.</p>
+              ) : (
+                <div className="products-grid">
+                  {businessHealth.lowStockItems.map((item) => (
+                    <div className="product-card premium-card" key={item._id}>
+                      <h3>{item.name}</h3>
+                      <p>Category: {item.category}</p>
+                      <p>Stock Left: {item.stock}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          </div>
+        )}
+
+        {activePage === 'admin' && role === 'admin' && (
+          <div className="products-page">
+            <section className="products-list-panel">
+              <h2>Admin Users Panel</h2>
+              {users.length === 0 ? (
+                <p className="empty-text">No users found.</p>
+              ) : (
+                <div className="products-grid">
+                  {users.map((user) => (
+                    <div className="product-card premium-card" key={user._id}>
+                      <h3>{user.name}</h3>
+                      <p>Email: {user.email}</p>
+                      <p>Role: {user.role}</p>
                     </div>
                   ))}
                 </div>

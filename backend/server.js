@@ -7,59 +7,73 @@ require('dotenv').config();
 
 const app = express();
 
-// ================= MIDDLEWARE =================
+// ===================== MIDDLEWARE =====================
 app.use(cors());
 app.use(express.json());
 
-// ================= DATABASE =================
-mongoose.connect(process.env.MONGO_URI)
+// ===================== DATABASE =====================
+mongoose
+  .connect(process.env.MONGO_URI)
   .then(() => console.log('✅ MongoDB Atlas Connected'))
   .catch((err) => console.error('❌ MongoDB Error:', err.message));
 
-// ================= MODELS =================
-const UserSchema = new mongoose.Schema({
+// ===================== MODELS =====================
+
+// User
+const User = mongoose.model('User', {
   name: { type: String, default: 'User' },
-  email: { type: String, unique: true, required: true },
-  password: { type: String, required: true },
-  role: { type: String, default: 'staff' }
-}, { timestamps: true });
+  email: { type: String, unique: true },
+  password: String,
+  role: { type: String, default: 'staff' }, // admin or staff
+  createdAt: { type: Date, default: Date.now }
+});
 
-const ProductSchema = new mongoose.Schema({
-  name: { type: String, required: true },
-  category: { type: String, default: 'General' },
-  price: { type: Number, required: true },
-  stock: { type: Number, required: true }
-}, { timestamps: true });
+// Product
+const Product = mongoose.model('Product', {
+  name: String,
+  category: String,
+  price: Number,
+  stock: Number,
+  createdAt: { type: Date, default: Date.now }
+});
 
-const SaleSchema = new mongoose.Schema({
-  productId: { type: mongoose.Schema.Types.ObjectId, ref: 'Product' },
+// Sale
+const Sale = mongoose.model('Sale', {
+  productId: String,
   productName: String,
   quantity: Number,
   price: Number,
   total: Number,
-  soldBy: String
-}, { timestamps: true });
+  createdAt: { type: Date, default: Date.now }
+});
 
-const ExpenseSchema = new mongoose.Schema({
-  title: { type: String, required: true },
-  amount: { type: Number, required: true },
-  addedBy: String
-}, { timestamps: true });
+// Expense
+const Expense = mongoose.model('Expense', {
+  title: String,
+  amount: Number,
+  createdAt: { type: Date, default: Date.now }
+});
 
-const InvoiceSchema = new mongoose.Schema({
-  customerName: { type: String, required: true },
+// Invoice
+const Invoice = mongoose.model('Invoice', {
+  customerName: String,
   items: [String],
-  total: { type: Number, required: true },
-  createdBy: String
-}, { timestamps: true });
+  total: Number,
+  createdBy: String,
+  createdAt: { type: Date, default: Date.now }
+});
 
-const User = mongoose.model('User', UserSchema);
-const Product = mongoose.model('Product', ProductSchema);
-const Sale = mongoose.model('Sale', SaleSchema);
-const Expense = mongoose.model('Expense', ExpenseSchema);
-const Invoice = mongoose.model('Invoice', InvoiceSchema);
+// Payment
+const Payment = mongoose.model('Payment', {
+  phoneNumber: String,
+  amount: Number,
+  provider: String, // MTN / Airtel
+  status: { type: String, default: 'success' },
+  transactionId: String,
+  createdAt: { type: Date, default: Date.now }
+});
 
-// ================= AUTH MIDDLEWARE =================
+// ===================== AUTH MIDDLEWARE =====================
 const auth = (req, res, next) => {
   try {
     const token = req.headers.authorization;
@@ -68,12 +82,8 @@ const auth = (req, res, next) => {
       return res.status(401).json({ message: 'Access denied. No token provided.' });
     }
 
-    const cleanToken = token.startsWith('Bearer ')
-      ? token.split(' ')[1]
-      : token;
-
-    const verified = jwt.verify(cleanToken, process.env.JWT_SECRET);
-    req.user = verified;
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    req.user = decoded;
     next();
   } catch (error) {
     return res.status(403).json({ message: 'Invalid or expired token.' });
@@ -87,20 +97,20 @@ const adminOnly = (req, res, next) => {
   next();
 };
 
-// ================= TEST ROUTE =================
+// ===================== TEST ROUTE =====================
 app.get('/', (req, res) => {
-  res.send("Deb's Delights Backend is running 🚀");
+  res.send("Deb's Delights Premium Backend is running 🚀");
 });
 
-// ================= AUTH ROUTES =================
+// ===================== AUTH ROUTES =====================
 
 // Register
 app.post('/auth/register', async (req, res) => {
   try {
     const { name, email, password, role } = req.body;
 
-    if (!email || !password) {
-      return res.status(400).json({ message: 'Email and password are required.' });
+    if (!name || !email || !password) {
+      return res.status(400).json({ message: 'Name, email and password are required.' });
     }
 
     const existingUser = await User.findOne({ email });
@@ -112,13 +122,13 @@ app.post('/auth/register', async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, 10);
 
     const user = await User.create({
-      name: name || 'User',
+      name,
       email,
       password: hashedPassword,
       role: role || 'staff'
     });
 
-    res.status(201).json({
+    res.json({
       message: 'Account created successfully',
       user: {
         id: user._id,
@@ -128,10 +138,7 @@ app.post('/auth/register', async (req, res) => {
       }
     });
   } catch (error) {
-    res.status(500).json({
-      message: 'Registration failed',
-      error: error.message
-    });
+    res.status(500).json({ message: 'Registration failed', error: error.message });
   }
 });
 
@@ -156,39 +163,25 @@ app.post('/auth/login', async (req, res) => {
       {
         id: user._id,
         role: user.role,
-        email: user.email,
-        name: user.name
+        name: user.name,
+        email: user.email
       },
       process.env.JWT_SECRET,
       { expiresIn: '7d' }
     );
 
     res.json({
-      message: 'Login successful',
       token,
       role: user.role,
       email: user.email,
       name: user.name
     });
   } catch (error) {
-    res.status(500).json({
-      message: 'Login failed',
-      error: error.message
-    });
+    res.status(500).json({ message: 'Login failed', error: error.message });
   }
 });
 
-// ================= USER PROFILE =================
-app.get('/me', auth, async (req, res) => {
-  try {
-    const user = await User.findById(req.user.id).select('-password');
-    res.json(user);
-  } catch (error) {
-    res.status(500).json({ message: 'Failed to fetch profile.' });
-  }
-});
-
-// ================= PRODUCTS =================
+// ===================== PRODUCTS =====================
 
 // Get all products
 app.get('/products', auth, async (req, res) => {
@@ -205,18 +198,18 @@ app.post('/products', auth, async (req, res) => {
   try {
     const { name, category, price, stock } = req.body;
 
-    if (!name || price === undefined || stock === undefined) {
-      return res.status(400).json({ message: 'Name, price and stock are required.' });
+    if (!name || !category || price === undefined || stock === undefined) {
+      return res.status(400).json({ message: 'All product fields are required.' });
     }
 
     const product = await Product.create({
       name,
-      category: category || 'General',
+      category,
       price: Number(price),
       stock: Number(stock)
     });
 
-    res.status(201).json(product);
+    res.json(product);
   } catch (error) {
     res.status(500).json({ message: 'Failed to add product.' });
   }
@@ -251,9 +244,9 @@ app.put('/products/:id', auth, async (req, res) => {
 // Delete product (Admin only)
 app.delete('/products/:id', auth, adminOnly, async (req, res) => {
   try {
-    const deletedProduct = await Product.findByIdAndDelete(req.params.id);
+    const deleted = await Product.findByIdAndDelete(req.params.id);
 
-    if (!deletedProduct) {
+    if (!deleted) {
       return res.status(404).json({ message: 'Product not found.' });
     }
 
@@ -263,7 +256,7 @@ app.delete('/products/:id', auth, adminOnly, async (req, res) => {
   }
 });
 
-// ================= SALES =================
+// ===================== SALES =====================
 
 // Get all sales
 app.get('/sales', auth, async (req, res) => {
@@ -275,7 +268,7 @@ app.get('/sales', auth, async (req, res) => {
   }
 });
 
-// Add sale
+// Add sale and reduce stock
 app.post('/sales', auth, async (req, res) => {
   try {
     const { productId, quantity } = req.body;
@@ -297,24 +290,23 @@ app.post('/sales', auth, async (req, res) => {
     const total = product.price * Number(quantity);
 
     const sale = await Sale.create({
-      productId: product._id,
+      productId: product._id.toString(),
       productName: product.name,
       quantity: Number(quantity),
       price: product.price,
-      total,
-      soldBy: req.user.email
+      total
     });
 
     product.stock = product.stock - Number(quantity);
     await product.save();
 
-    res.status(201).json(sale);
+    res.json(sale);
   } catch (error) {
     res.status(500).json({ message: 'Failed to record sale.' });
   }
 });
 
-// ================= EXPENSES =================
+// ===================== EXPENSES =====================
 
 // Get all expenses
 app.get('/expenses', auth, async (req, res) => {
@@ -332,22 +324,21 @@ app.post('/expenses', auth, async (req, res) => {
     const { title, amount } = req.body;
 
     if (!title || amount === undefined) {
-      return res.status(400).json({ message: 'Title and amount are required.' });
+      return res.status(400).json({ message: 'Expense title and amount are required.' });
     }
 
     const expense = await Expense.create({
       title,
-      amount: Number(amount),
-      addedBy: req.user.email
+      amount: Number(amount)
     });
 
-    res.status(201).json(expense);
+    res.json(expense);
   } catch (error) {
     res.status(500).json({ message: 'Failed to add expense.' });
   }
 });
 
-// ================= INVOICES =================
+// ===================== INVOICES =====================
 
 // Get all invoices
 app.get('/invoices', auth, async (req, res) => {
@@ -375,14 +366,78 @@ app.post('/invoices', auth, async (req, res) => {
       createdBy: req.user.email
     });
 
-    res.status(201).json(invoice);
+    res.json(invoice);
   } catch (error) {
     res.status(500).json({ message: 'Failed to create invoice.' });
   }
 });
 
-// ================= SUMMARY =================
+// ===================== PAYMENTS =====================
+
+// Simulated Mobile Money Payment Route
+// (Can later connect to real MTN / Airtel APIs)
+app.post('/payments', auth, async (req, res) => {
+  try {
+    const { phoneNumber, amount, provider } = req.body;
+
+    if (!phoneNumber || !amount || !provider) {
+      return res.status(400).json({ message: 'Phone number, amount and provider are required.' });
+    }
+
+    const payment = await Payment.create({
+      phoneNumber,
+      amount: Number(amount),
+      provider,
+      status: 'success',
+      transactionId: `TXN-${Date.now()}`
+    });
+
+    res.json({
+      message: 'Payment processed successfully.',
+      payment
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Payment failed.' });
+  }
+});
+
+// Get all payments
+app.get('/payments', auth, adminOnly, async (req, res) => {
+  try {
+    const payments = await Payment.find().sort({ createdAt: -1 });
+    res.json(payments);
+  } catch (error) {
+    res.status(500).json({ message: 'Failed to fetch payments.' });
+  }
+});
+
+// ===================== SUMMARY =====================
 app.get('/summary', auth, async (req, res) => {
+  try {
+    const products = await Product.find();
+    const sales = await Sale.find();
+    const expenses = await Expense.find();
+
+    const totalProducts = products.length;
+    const totalStockValue = products.reduce((sum, p) => sum + (p.price * p.stock), 0);
+    const totalSales = sales.reduce((sum, item) => sum + item.total, 0);
+    const totalExpenses = expenses.reduce((sum, item) => sum + item.amount, 0);
+    const profit = totalSales - totalExpenses;
+
+    res.json({
+      totalProducts,
+      totalStockValue,
+      totalSales,
+      totalExpenses,
+      profit
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Failed to load summary.' });
+  }
+});
+
+// ===================== AI BUSINESS ANALYST =====================
+app.get('/ai/business-health', auth, async (req, res) => {
   try {
     const products = await Product.find();
     const sales = await Sale.find();
@@ -393,20 +448,72 @@ app.get('/summary', auth, async (req, res) => {
     const totalExpenses = expenses.reduce((sum, item) => sum + item.amount, 0);
     const profit = totalSales - totalExpenses;
 
+    const totalStock = products.reduce((sum, p) => sum + p.stock, 0);
+    const lowStockItems = products.filter((p) => p.stock <= 5);
+    const averageSaleValue = sales.length > 0 ? totalSales / sales.length : 0;
+
+    let healthStatus = 'Stable';
+    let recommendation = [];
+
+    if (profit <= 0) {
+      healthStatus = 'At Risk';
+      recommendation.push('Your business is not yet breaking even. Increase sales or reduce unnecessary expenses.');
+    }
+
+    if (profit > 0 && totalSales > totalExpenses) {
+      healthStatus = 'Growing';
+      recommendation.push('Your business is profitable. Focus on scaling high-performing products.');
+    }
+
+    if (lowStockItems.length > 0) {
+      recommendation.push('Some products are running low in stock. Restock your best sellers quickly.');
+    }
+
+    if (sales.length < 5) {
+      recommendation.push('Sales volume is still low. Promote offers, bundles, and repeat customer incentives.');
+    }
+
+    if (totalExpenses > totalSales * 0.7) {
+      recommendation.push('Expenses are consuming too much revenue. Audit operating costs immediately.');
+    }
+
+    if (averageSaleValue < 20000) {
+      recommendation.push('Average sale value is low. Introduce premium bundles or upsell snack + juice combos.');
+    }
+
+    if (recommendation.length === 0) {
+      recommendation.push('Business performance is healthy. Maintain stock, customer retention, and smart promotions.');
+    }
+
     res.json({
+      healthStatus,
       totalProducts,
       totalSales,
       totalExpenses,
-      profit
+      profit,
+      totalStock,
+      averageSaleValue,
+      lowStockItems,
+      recommendation
     });
   } catch (error) {
-    res.status(500).json({ message: 'Failed to load summary.' });
+    res.status(500).json({ message: 'Failed to analyze business health.' });
   }
 });
 
-// ================= START SERVER =================
+// ===================== ADMIN USERS VIEW =====================
+app.get('/users', auth, adminOnly, async (req, res) => {
+  try {
+    const users = await User.find().select('-password').sort({ createdAt: -1 });
+    res.json(users);
+  } catch (error) {
+    res.status(500).json({ message: 'Failed to fetch users.' });
+  }
+});
+
+// ===================== START SERVER =====================
 const PORT = process.env.PORT || 5001;
 
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on http://localhost:${PORT}`);
+  console.log(`🚀 Deb's Delights Backend running on http://localhost:${PORT}`);
 });
